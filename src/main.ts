@@ -1,15 +1,19 @@
 import "./styles.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { buildRubiksCube } from "./cube";
+import { CubeView } from "./cube";
 import { mountKeypad } from "./keypad";
 import { tokenize, type MoveToken } from "./parser";
+import { CubeState } from "./core/state3";
+import { CubeController } from "./controller";
 
 declare global {
   interface Window {
     getSequence: () => string;
     parseSequence: (input: string) => MoveToken[];
     toggleSpin: () => void;
+    getPerm: () => number[];
+    enqueue: (input: string) => void;
   }
 }
 
@@ -68,7 +72,10 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
 directionalLight.position.set(5, 6, 4);
 scene.add(directionalLight);
 
-const cubeGroup = buildRubiksCube(scene, { cubeletSize: 0.98, gap: 0.02 });
+const cubeView = new CubeView(scene, { cubeletSize: 0.98, gap: 0.02, turnMs: 180 });
+const cubeState = new CubeState();
+const controller = new CubeController(cubeView, cubeState);
+const cubeGroup = cubeView.getGroup();
 let spinEnabled = false;
 const spinSpeed = 0.25;
 
@@ -80,6 +87,7 @@ if (!uiRoot) {
 mountKeypad(uiRoot, (token) => {
   currentSequence.push(token);
   scheduleSequenceLog();
+  controller.enqueue(token);
 });
 
 window.getSequence = () => currentSequence.join(" ");
@@ -87,6 +95,13 @@ window.parseSequence = (input: string) => tokenize(input);
 window.toggleSpin = () => {
   spinEnabled = !spinEnabled;
 };
+(window as any).getPerm = () => Array.from(cubeState.getPermutation());
+(window as any).enqueue = (input: string) => {
+  if (!input.trim()) return;
+  controller.enqueueMany(tokenize(input));
+};
+(window as any).scramble = () =>
+  controller.enqueueMany(["F", "R", "U", "L", "D'", "F", "B'", "R", "U"]);
 
 const handleResize = () => {
   const width = window.innerWidth;

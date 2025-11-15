@@ -19,95 +19,9 @@ const TOKENS = [
   "B2",
 ];
 
-const TOKEN_PATTERN = /^[UDLRFB](?:['2])?$/;
+let inputEl: HTMLInputElement | null = null;
 
-let sequenceInput: HTMLInputElement | null = null;
-let keyboardListener: ((event: KeyboardEvent) => void) | null = null;
-let pendingToken = "";
-let moveHandler: ((token: string) => void) | null = null;
-
-function appendTokenToInput(token: string) {
-  if (!sequenceInput) return;
-  const trimmed = sequenceInput.value.trim();
-  const prefix = trimmed.length > 0 ? `${trimmed} ` : "";
-  sequenceInput.value = `${prefix}${token} `;
-  sequenceInput.focus();
-}
-
-function emitToken(token: string) {
-  if (!TOKEN_PATTERN.test(token)) {
-    return;
-  }
-  appendTokenToInput(token);
-  moveHandler?.(token);
-  window.dispatchEvent(new CustomEvent("moveInput", { detail: token }));
-}
-
-function setupKeyboard() {
-  if (keyboardListener) {
-    window.removeEventListener("keydown", keyboardListener);
-  }
-
-  keyboardListener = (event: KeyboardEvent) => {
-    if (!sequenceInput) {
-      return;
-    }
-
-    const target = event.target as HTMLElement | null;
-    if (
-      target &&
-      target !== document.body &&
-      target !== sequenceInput
-    ) {
-      return;
-    }
-
-    const key = event.key;
-
-    if (key === " " || key === "Enter") {
-      if (pendingToken) {
-        event.preventDefault();
-        emitToken(pendingToken);
-        pendingToken = "";
-      }
-      return;
-    }
-
-    if (key === "Backspace") {
-      if (pendingToken) {
-        event.preventDefault();
-        pendingToken = "";
-      }
-      return;
-    }
-
-    if (key === "'") {
-      if (pendingToken.length === 1) {
-        event.preventDefault();
-        pendingToken = `${pendingToken}'`;
-      }
-      return;
-    }
-
-    if (key === "2" && pendingToken.length === 1) {
-      event.preventDefault();
-      pendingToken = `${pendingToken}2`;
-      return;
-    }
-
-    if (key.length === 1) {
-      const upper = key.toUpperCase();
-      if ("UDLRFB".includes(upper)) {
-        event.preventDefault();
-        pendingToken = upper;
-      }
-    }
-  };
-
-  window.addEventListener("keydown", keyboardListener);
-}
-
-function createSequenceInput(): HTMLInputElement {
+function createInput(): HTMLInputElement {
   const input = document.createElement("input");
   input.type = "text";
   input.placeholder = "Type moves e.g. R U F ...";
@@ -117,7 +31,13 @@ function createSequenceInput(): HTMLInputElement {
   return input;
 }
 
-function createActionButtons(input: HTMLInputElement) {
+function appendTokenToInput(token: string) {
+  if (!inputEl) return;
+  const value = inputEl.value.trim();
+  inputEl.value = value ? `${value} ${token}` : `${token}`;
+}
+
+function createActions(): HTMLDivElement {
   const actions = document.createElement("div");
   actions.className = "keypad-actions";
 
@@ -125,45 +45,41 @@ function createActionButtons(input: HTMLInputElement) {
   clearButton.type = "button";
   clearButton.textContent = "Clear";
   clearButton.addEventListener("click", () => {
-    input.value = "";
-    input.focus();
+    if (inputEl) {
+      inputEl.value = "";
+      inputEl.focus();
+    }
   });
 
   const copyButton = document.createElement("button");
   copyButton.type = "button";
-  copyButton.textContent = "Copy Sequence";
+  copyButton.textContent = "Copy";
   copyButton.addEventListener("click", async () => {
-    const text = input.value;
-    if (!text) return;
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return;
-      } catch {
-        // fall through to execCommand
-      }
+    if (!inputEl) return;
+    const value = inputEl.value;
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      inputEl.select();
+      document.execCommand("copy");
+      inputEl.setSelectionRange(value.length, value.length);
     }
-    input.select();
-    document.execCommand("copy");
-    input.setSelectionRange(input.value.length, input.value.length);
   });
 
-  actions.appendChild(clearButton);
-  actions.appendChild(copyButton);
+  actions.append(clearButton, copyButton);
   return actions;
 }
 
 export function mountKeypad(root: HTMLElement, onMove: (token: string) => void): void {
-  moveHandler = onMove;
-
   root.innerHTML = "";
   root.classList.add("keypad-container");
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "keypad-panel";
+  const panel = document.createElement("div");
+  panel.className = "keypad-panel";
 
-  const input = createSequenceInput();
-  sequenceInput = input;
+  inputEl = createInput();
+  panel.appendChild(inputEl);
 
   const keypad = document.createElement("div");
   keypad.className = "keypad";
@@ -173,19 +89,18 @@ export function mountKeypad(root: HTMLElement, onMove: (token: string) => void):
     button.type = "button";
     button.textContent = token;
     button.addEventListener("click", () => {
-      emitToken(token);
+      appendTokenToInput(token);
+      onMove(token);
+      window.dispatchEvent(new CustomEvent("moveInput", { detail: token }));
     });
     keypad.appendChild(button);
   });
 
-  wrapper.appendChild(input);
-  wrapper.appendChild(keypad);
-  wrapper.appendChild(createActionButtons(input));
-  root.appendChild(wrapper);
-
-  setupKeyboard();
+  panel.appendChild(keypad);
+  panel.appendChild(createActions());
+  root.appendChild(panel);
 }
 
 export function getSequence(): string {
-  return sequenceInput?.value ?? "";
+  return inputEl?.value ?? "";
 }
