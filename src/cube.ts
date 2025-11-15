@@ -1,5 +1,42 @@
 import * as THREE from "three";
-import { MoveToken } from "./core/types";
+import type { MoveToken } from "./core/types";
+
+type Axis = "x" | "y" | "z";
+
+function tokenInfo(tok: MoveToken): { axis: Axis; layer: 1 | -1; quarter: -1 | 1 } {
+  const f = tok[0];
+  const prime = tok.endsWith("'");
+  let axis: Axis;
+  let layer: 1 | -1;
+  let cwQuarter: -1 | 1;
+  if (f === "U") {
+    axis = "y";
+    layer = 1;
+    cwQuarter = -1;
+  } else if (f === "D") {
+    axis = "y";
+    layer = -1;
+    cwQuarter = 1;
+  } else if (f === "R") {
+    axis = "x";
+    layer = 1;
+    cwQuarter = -1;
+  } else if (f === "L") {
+    axis = "x";
+    layer = -1;
+    cwQuarter = 1;
+  } else if (f === "F") {
+    axis = "z";
+    layer = 1;
+    cwQuarter = -1;
+  } else {
+    axis = "z";
+    layer = -1;
+    cwQuarter = 1;
+  }
+  const q = prime ? ((cwQuarter * -1) as -1 | 1) : cwQuarter;
+  return { axis, layer, quarter: q };
+}
 
 const FACE_COLORS = {
   R: 0xd32f2f,
@@ -10,197 +47,147 @@ const FACE_COLORS = {
   B: 0x1e88e5,
 } as const;
 
-interface Cubelet {
-  object: THREE.Group;
-  ix: number;
-  iy: number;
-  iz: number;
-}
-
-type Axis = "x" | "y" | "z";
-
-const TURN_MAP: Record<
-  Exclude<MoveToken[0], undefined>,
-  { axis: Axis; layer: 1 | -1; angle: number }
-> = {
-  U: { axis: "y", layer: 1, angle: -Math.PI / 2 },
-  D: { axis: "y", layer: -1, angle: Math.PI / 2 },
-  R: { axis: "x", layer: 1, angle: -Math.PI / 2 },
-  L: { axis: "x", layer: -1, angle: Math.PI / 2 },
-  F: { axis: "z", layer: 1, angle: -Math.PI / 2 },
-  B: { axis: "z", layer: -1, angle: Math.PI / 2 },
-};
-
 export class CubeView {
-  private readonly root = new THREE.Group();
-  private readonly cubelets: Cubelet[] = [];
-  private readonly spacing: number;
-  private readonly turnMs: number;
-  private readonly axisVectors = {
-    x: new THREE.Vector3(1, 0, 0),
-    y: new THREE.Vector3(0, 1, 0),
-    z: new THREE.Vector3(0, 0, 1),
-  };
+  private root = new THREE.Group();
+  private cubelets: THREE.Mesh[] = [];
+  private coords = new Map<THREE.Object3D, [number, number, number]>();
+  private gap: number;
+  private cubeletSize: number;
+  private turnMs: number;
+  private step: number;
 
   constructor(
     scene: THREE.Scene,
-    opts: { cubeletSize?: number; gap?: number; turnMs?: number } = {}
+    opts?: { cubeletSize?: number; gap?: number; turnMs?: number }
   ) {
-    const cubeletSize = opts.cubeletSize ?? 0.98;
-    const gap = opts.gap ?? 0.02;
-    this.turnMs = opts.turnMs ?? 280;
-    this.spacing = cubeletSize + gap;
+    this.cubeletSize = opts?.cubeletSize ?? 0.98;
+    this.gap = opts?.gap ?? 0.02;
+    this.turnMs = opts?.turnMs ?? 180;
+    this.step = 1 + this.gap;
+    this.build();
     scene.add(this.root);
-    this.buildCube(cubeletSize, gap);
   }
 
-  getGroup(): THREE.Group {
+  getGroup() {
     return this.root;
   }
 
-  async turn(token: MoveToken): Promise<void> {
-    const face = token[0] as keyof typeof TURN_MAP;
-    const base = TURN_MAP[face];
-    if (!base) return;
-    const suffix = token.length > 1 ? token.slice(1) : "";
-    let angle = base.angle;
-    if (suffix === "'") {
-      angle *= -1;
-    }
-    const turns = suffix === "2" ? 2 : 1;
-    for (let i = 0; i < turns; i++) {
-      await this.animateLayer(base.axis, base.layer, angle);
-    }
-  }
-
-  private buildCube(cubeletSize: number, gap: number) {
-    const spacing = cubeletSize + gap;
-    const geometry = new THREE.BoxGeometry(cubeletSize, cubeletSize, cubeletSize);
-    const neutralMaterial = new THREE.MeshStandardMaterial({
+  private build() {
+    const neutral = new THREE.MeshStandardMaterial({
       color: 0x111111,
       roughness: 0.6,
       metalness: 0.05,
     });
-    const materialsCache: Record<string, THREE.MeshStandardMaterial> = {};
-    const getFaceMaterial = (face: keyof typeof FACE_COLORS) => {
-      const key = face;
-      if (!materialsCache[key]) {
-        materialsCache[key] = new THREE.MeshStandardMaterial({
-          color: FACE_COLORS[face],
-          roughness: 0.6,
-          metalness: 0.05,
-        });
-      }
-      return materialsCache[key];
+    const materials: Record<string, THREE.MeshStandardMaterial> = {
+      R: new THREE.MeshStandardMaterial({ color: FACE_COLORS.R }),
+      L: new THREE.MeshStandardMaterial({ color: FACE_COLORS.L }),
+      U: new THREE.MeshStandardMaterial({ color: FACE_COLORS.U }),
+      D: new THREE.MeshStandardMaterial({ color: FACE_COLORS.D }),
+      F: new THREE.MeshStandardMaterial({ color: FACE_COLORS.F }),
+      B: new THREE.MeshStandardMaterial({ color: FACE_COLORS.B }),
     };
-    const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1 });
+    const geom = new THREE.BoxGeometry(1, 1, 1);
 
-    for (let ix = -1; ix <= 1; ix++) {
-      for (let iy = -1; iy <= 1; iy++) {
-        for (let iz = -1; iz <= 1; iz++) {
+    for (const ix of [-1, 0, 1]) {
+      for (const iy of [-1, 0, 1]) {
+        for (const iz of [-1, 0, 1]) {
           if (ix === 0 && iy === 0 && iz === 0) continue;
-
-          const materials: THREE.Material[] = [
-            neutralMaterial,
-            neutralMaterial,
-            neutralMaterial,
-            neutralMaterial,
-            neutralMaterial,
-            neutralMaterial,
+          const mats: THREE.Material[] = [
+            ix === 1 ? materials.R : neutral,
+            ix === -1 ? materials.L : neutral,
+            iy === 1 ? materials.U : neutral,
+            iy === -1 ? materials.D : neutral,
+            iz === 1 ? materials.F : neutral,
+            iz === -1 ? materials.B : neutral,
           ];
-
-          if (ix === 1) materials[0] = getFaceMaterial("R");
-          if (ix === -1) materials[1] = getFaceMaterial("L");
-          if (iy === 1) materials[2] = getFaceMaterial("U");
-          if (iy === -1) materials[3] = getFaceMaterial("D");
-          if (iz === 1) materials[4] = getFaceMaterial("F");
-          if (iz === -1) materials[5] = getFaceMaterial("B");
-
-          const mesh = new THREE.Mesh(geometry, materials);
+          const mesh = new THREE.Mesh(geom, mats);
+          mesh.scale.setScalar(this.cubeletSize);
+          mesh.position.set(ix * this.step, iy * this.step, iz * this.step);
+          this.root.add(mesh);
+          this.cubelets.push(mesh);
+          this.coords.set(mesh, [ix, iy, iz]);
           const edges = new THREE.LineSegments(
-            new THREE.EdgesGeometry(geometry),
-            edgeMaterial
+            new THREE.EdgesGeometry(geom),
+            new THREE.LineBasicMaterial({ color: 0x000000 })
           );
-
-          const cubeletGroup = new THREE.Group();
-          cubeletGroup.add(mesh);
-          cubeletGroup.add(edges);
-          cubeletGroup.position.set(ix * spacing, iy * spacing, iz * spacing);
-
-          this.root.add(cubeletGroup);
-          this.cubelets.push({ object: cubeletGroup, ix, iy, iz });
+          edges.scale.setScalar(this.cubeletSize + 0.001);
+          mesh.add(edges);
         }
       }
     }
   }
 
-  private animateLayer(axis: Axis, layer: 1 | -1, angle: number): Promise<void> {
-    const targetCubelets = this.cubelets.filter((cubelet) => {
-      if (axis === "x") return cubelet.ix === layer;
-      if (axis === "y") return cubelet.iy === layer;
-      return cubelet.iz === layer;
-    });
-    if (targetCubelets.length === 0 || angle === 0) {
-      return Promise.resolve();
+  private selectLayer(axis: Axis, layer: 1 | -1): THREE.Object3D[] {
+    const items: THREE.Object3D[] = [];
+    for (const mesh of this.cubelets) {
+      const coord = this.coords.get(mesh)!;
+      const [x, y, z] = coord;
+      if (axis === "x" && x === layer) items.push(mesh);
+      else if (axis === "y" && y === layer) items.push(mesh);
+      else if (axis === "z" && z === layer) items.push(mesh);
     }
+    return items;
+  }
 
-    const pivot = new THREE.Group();
-    this.root.add(pivot);
-    targetCubelets.forEach((cubelet) => {
-      pivot.attach(cubelet.object);
-    });
+  private snapAndRecord(group: THREE.Group) {
+    const children = [...group.children];
+    for (const child of children) {
+      this.root.attach(child); // keep world transform resulting from rotation
+      const pos = child.position;
+      child.position.set(
+        Math.round(pos.x / this.step) * this.step,
+        Math.round(pos.y / this.step) * this.step,
+        Math.round(pos.z / this.step) * this.step
+      );
+      const coord = this.coords.get(child)!;
+      coord[0] = Math.round(child.position.x / this.step);
+      coord[1] = Math.round(child.position.y / this.step);
+      coord[2] = Math.round(child.position.z / this.step);
+      child.rotation.x = Math.round(child.rotation.x / (Math.PI / 2)) * (Math.PI / 2);
+      child.rotation.y = Math.round(child.rotation.y / (Math.PI / 2)) * (Math.PI / 2);
+      child.rotation.z = Math.round(child.rotation.z / (Math.PI / 2)) * (Math.PI / 2);
+    }
+    group.removeFromParent();
+    group.clear();
+  }
 
-    const axisVector = this.axisVectors[axis];
-    const duration = this.turnMs;
+  async turn(token: MoveToken): Promise<void> {
+    const { axis, layer, quarter } = tokenInfo(token);
+    const turns = token.endsWith("2") ? 2 : 1;
+    const axisVector =
+      axis === "x"
+        ? new THREE.Vector3(1, 0, 0)
+        : axis === "y"
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(0, 0, 1);
 
-    return new Promise((resolve) => {
+    for (let i = 0; i < turns; i++) {
+      const temp = new THREE.Group();
+      this.root.add(temp);
+      const items = this.selectLayer(axis, layer);
+      for (const item of items) {
+        temp.attach(item);
+      }
+      const target = quarter * (Math.PI / 2);
       const start = performance.now();
-      let lastAngle = 0;
+      const duration = this.turnMs;
 
-      const step = (now: number) => {
-        const elapsed = now - start;
-        const t = Math.min(elapsed / duration, 1);
-        const currentAngle = angle * t;
-        const delta = currentAngle - lastAngle;
-        pivot.rotateOnAxis(axisVector, delta);
-        lastAngle = currentAngle;
+      await new Promise<void>((resolve) => {
+        const frame = () => {
+          const t = Math.min(1, (performance.now() - start) / duration);
+          const angle = target * t;
+          temp.rotation.set(0, 0, 0);
+          temp.rotateOnAxis(axisVector, angle);
+          if (t < 1) {
+            requestAnimationFrame(frame);
+          } else {
+            resolve();
+          }
+        };
+        requestAnimationFrame(frame);
+      });
 
-        if (t < 1) {
-          requestAnimationFrame(step);
-        } else {
-          targetCubelets.forEach((cubelet) => {
-            this.root.attach(cubelet.object);
-            this.snapCubelet(cubelet);
-          });
-          this.root.remove(pivot);
-          resolve();
-        }
-      };
-
-      requestAnimationFrame(step);
-    });
-  }
-
-  private snapCubelet(cubelet: Cubelet) {
-    cubelet.ix = Math.round(cubelet.object.position.x / this.spacing);
-    cubelet.iy = Math.round(cubelet.object.position.y / this.spacing);
-    cubelet.iz = Math.round(cubelet.object.position.z / this.spacing);
-
-    cubelet.object.position.set(
-      cubelet.ix * this.spacing,
-      cubelet.iy * this.spacing,
-      cubelet.iz * this.spacing
-    );
-
-    cubelet.object.rotation.set(
-      this.snapAngle(cubelet.object.rotation.x),
-      this.snapAngle(cubelet.object.rotation.y),
-      this.snapAngle(cubelet.object.rotation.z)
-    );
-  }
-
-  private snapAngle(value: number): number {
-    const step = Math.PI / 2;
-    return Math.round(value / step) * step;
+      this.snapAndRecord(temp);
+    }
   }
 }
