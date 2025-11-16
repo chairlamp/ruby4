@@ -1,0 +1,31 @@
+#cycle-list {
+  font: 12px/1.4 system-ui, Segoe UI, Roboto, sans-serif;
+  color: #e6e6e6;
+}
+#cycle-list table {
+  width: 100%;
+  border-collapse: collapse;
+}
+#cycle-list th,
+#cycle-list td {
+  padding: 4px 6px;
+  border-bottom: 1px solid #333;
+  vertical-align: top;
+}
+#cycle-list tr:hover {
+  background: #1f2937;
+}
+#cycle-list .k {
+  color: #93c5fd;
+  width: 3rem;
+  text-align: right;
+}
+#cycle-list .idx {
+  color: #fca5a5;
+  width: 2rem;
+  text-align: right;
+}
+#cycle-list .members {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-word;
+}

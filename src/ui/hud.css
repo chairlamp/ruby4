@@ -1,0 +1,17 @@
+/* Anchor for bottom-left wheel. Use !important to beat app-wide resets. */
+#cycle-wheel-fixed {
+  position: fixed !important;
+  left: 16px !important;
+  bottom: 16px !important;
+  width: 280px;
+  z-index: 2000; /* above canvas/sidebars, below modals if any */
+  pointer-events: auto;
+}
+
+@media (max-width: 900px) {
+  #cycle-wheel-fixed {
+    left: 8px !important;
+    bottom: 8px !important;
+    width: 220px;
+  }
+}

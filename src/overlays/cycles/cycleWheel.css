@@ -1,0 +1,19 @@
+#cycle-wheel {
+  font: 12px/1.4 system-ui, Segoe UI, Roboto, sans-serif;
+  color: #e6e6e6;
+}
+#cycle-wheel .title {
+  margin: 0 0 6px 0;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+#cycle-wheel canvas {
+  display: block;
+  border: 1px solid #334155;
+  background: #0b1220;
+  border-radius: 6px;
+}
+#cycle-wheel .legend {
+  margin-top: 6px;
+  color: #a8b0bf;
+}

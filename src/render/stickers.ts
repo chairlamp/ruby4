@@ -69,6 +69,7 @@ function solvedMatrixFor(destIndex: number): THREE.Matrix4 {
 }
 
 export class StickerSystem {
+  onStateChanged?: () => void;
   /** dest→src mapping (which original sticker sits at each slot) */
   private state: Uint16Array = identity48();
   /** Solved-slot matrices (world) */
@@ -98,6 +99,8 @@ export class StickerSystem {
   } = null;
 
   readonly root = new THREE.Group();
+
+  private highlight: THREE.InstancedMesh;
 
   constructor() {
     // Shared geometry
@@ -131,6 +134,16 @@ export class StickerSystem {
     this.base.instanceMatrix.needsUpdate = true;
     this.root.add(this.base);
 
+    const hlMat = new THREE.MeshBasicMaterial({
+      color: 0xffff66,
+      transparent: true,
+      opacity: 0.6,
+      depthTest: false
+    });
+    this.highlight = new THREE.InstancedMesh(geom, hlMat, 48);
+    this.highlight.count = 0;
+    this.root.add(this.highlight);
+
     // ----- 6 centers (fixed) -----
     const centersMat = mat.clone();
     this.centers = new THREE.InstancedMesh(geom, centersMat, 6);
@@ -152,6 +165,30 @@ export class StickerSystem {
 
     // Initial colors for moving stickers from solved state
     this.refreshColors();
+  }
+
+  getPerm48(): Uint16Array {
+    return new Uint16Array(this.state);
+  }
+
+  setHoverHighlights(indices: number[]): void {
+    const count = Math.min(indices.length, 48);
+    this.highlight.count = count;
+    const localNormal = new THREE.Vector3(0, 0, 1);
+    for (let k = 0; k < count; k++) {
+      const d = indices[k];
+      const m = this.slotMats[d].clone();
+      const pos = new THREE.Vector3();
+      const rot = new THREE.Quaternion();
+      const scl = new THREE.Vector3();
+      m.decompose(pos, rot, scl);
+      const lift = localNormal.clone().applyQuaternion(rot).multiplyScalar(0.035);
+      pos.add(lift);
+      scl.multiplyScalar(1.06);
+      const out = new THREE.Matrix4().compose(pos, rot, scl);
+      this.highlight.setMatrixAt(k, out);
+    }
+    this.highlight.instanceMatrix.needsUpdate = true;
   }
 
   get object3d(): THREE.Group { return this.root; }
@@ -221,6 +258,7 @@ export class StickerSystem {
     this.refreshColors();
 
     this.active = null;
+    this.onStateChanged?.();
   }
 
   private computeLayer(face: Face): number[] {

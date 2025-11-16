@@ -1,0 +1,36 @@
+/* Corner anchors for overlay panels */
+.ui-anchor-tl {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+}
+.ui-anchor-tr {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+}
+.ui-anchor-bl {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 20;
+}
+.ui-anchor-br {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 20;
+}
+
+/* Narrow panel width for small widgets like the wheel */
+.ui-panel-narrow {
+  width: 260px;
+  max-width: calc(100vw - 32px);
+}
+@media (max-width: 900px) {
+  .ui-panel-narrow {
+    width: 220px;
+  }
+}

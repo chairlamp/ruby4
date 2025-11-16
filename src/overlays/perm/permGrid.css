@@ -1,0 +1,20 @@
+#perm-grid {
+  font: 12px/1.4 system-ui, Segoe UI, Roboto, sans-serif;
+  color: #e6e6e6;
+}
+
+#perm-grid .title {
+  margin: 0 0 6px 0;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+#perm-grid canvas {
+  display: block;
+  border: 1px solid #334155;
+  background: #0b1220;
+  border-radius: 6px;
+}
+#perm-grid .legend {
+  margin-top: 6px;
+  color: #a8b0bf;
+}
