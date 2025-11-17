@@ -101,6 +101,7 @@ export class StickerSystem {
   readonly root = new THREE.Group();
 
   private highlight: THREE.InstancedMesh;
+  private _trailLength = 72;
 
   constructor() {
     // Shared geometry
@@ -165,6 +166,10 @@ export class StickerSystem {
 
     // Initial colors for moving stickers from solved state
     this.refreshColors();
+  }
+
+  setTrailLength(n: number) {
+    this._trailLength = Math.max(0, Math.floor(n));
   }
 
   getPerm48(): Uint16Array {

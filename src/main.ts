@@ -7,8 +7,11 @@ import { mountCycleList } from "./overlays/cycles/cycleList";
 import { mountPermGrid } from "./overlays/perm/permGrid";
 import { mountCycleWheel } from "./overlays/cycles/cycleWheel";
 import { mountEigenRing } from "./overlays/cycles/eigenRing";
+import { QualityManager, type QualityTier } from "./diag/quality";
+import { A11yManager } from "./a11y/a11y";
 import "./ui/anchors.css";
 import "./ui/hud.css";
+import "./ui/a11y.css";
 
 const container = document.getElementById("app")!;
 
@@ -141,6 +144,85 @@ const eigen = mountEigenRing(eigenDiv, () => stickers.getPerm48(), {
   };
 }
 
+let qualityBadge = document.getElementById("quality-badge") as HTMLDivElement | null;
+if (!qualityBadge) {
+  qualityBadge = document.createElement("div");
+  qualityBadge.id = "quality-badge";
+  Object.assign(qualityBadge.style, {
+    position: "absolute",
+    left: "12px",
+    bottom: "12px",
+    padding: "6px 8px",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+    fontSize: "12px",
+    color: "#e2e8f0",
+    background: "rgba(15,23,42,0.72)",
+    backdropFilter: "blur(6px)",
+    border: "1px solid #334155",
+    borderRadius: "6px",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+    zIndex: "30",
+    pointerEvents: "none",
+    whiteSpace: "nowrap",
+  } as CSSStyleDeclaration);
+  document.body.appendChild(qualityBadge);
+}
+
+let a11yBadge = document.getElementById("a11y-badge") as HTMLDivElement | null;
+if (!a11yBadge) {
+  a11yBadge = document.createElement("div");
+  a11yBadge.id = "a11y-badge";
+  document.body.appendChild(a11yBadge);
+}
+
+declare global {
+  interface Window {
+    setQuality?: (tier: QualityTier | null) => void;
+  }
+}
+
+const qm = new QualityManager({
+  hooks: {
+    setPixelRatio: (ratio) => renderer.setPixelRatio(ratio),
+    setTrailLength: (n) => (stickers as any)?.setTrailLength?.(n),
+    setBloomEnabled: (on) => (renderer as any)?.setBloomEnabled?.(on),
+    setShadowsEnabled: (on) => {
+      renderer.shadowMap.enabled = !!on;
+      key.castShadow = !!on;
+      rim.castShadow = !!on;
+    },
+    setBadge: (text) => {
+      if (qualityBadge) qualityBadge.textContent = text;
+    },
+  },
+  honorReducedMotion: true,
+});
+qm.attach();
+
+window.setQuality = (tier) => qm.force(tier);
+
+let currentTurnMs = 200;
+
+const a11y = new A11yManager({
+  hooks: {
+    setCanvasFilter: (filter) => {
+      renderer.domElement.style.filter = filter;
+    },
+    setTrailLength: (n) => (stickers as any)?.setTrailLength?.(n),
+    setTurnDurationMs: (ms) => {
+      currentTurnMs = ms;
+    },
+    setUiClass: (cls, on) => {
+      document.documentElement.classList.toggle(cls, on);
+    },
+    setBadge: (text) => {
+      if (a11yBadge) a11yBadge.textContent = text;
+    },
+  },
+  normalTurnMs: 200,
+  reducedTurnMs: 350,
+});
+
 // -- NEW: left-top dock just for the permutation grid --
 const uiLeft = document.createElement("div");
 uiLeft.style.position = "absolute";
@@ -184,7 +266,7 @@ controls.update();
 
 mountMoveUI({
   onParse(tokens) {
-    stickers.enqueue(tokens as any, 200);
+    stickers.enqueue(tokens as any, currentTurnMs);
   }
 });
 
@@ -203,12 +285,13 @@ renderer.setAnimationLoop(() => {
   const dt = now - last;
   last = now;
 
+  qm.tick(dt);
   controls.update();
   stickers.update(dt);
   renderer.render(scene, camera);
 });
 
-window.play = (sequence: string) => {
+(window as any).play = (sequence: string) => {
   const tokens = parseMoves(sequence);
-  stickers.enqueue(tokens as any, 200);
+  stickers.enqueue(tokens as any, currentTurnMs);
 };

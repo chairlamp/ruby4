@@ -1,0 +1,38 @@
+html.a11y-hc {
+  --panel-bg: rgba(10, 14, 25, 0.86);
+  --panel-border: #64748b;
+  --panel-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+html.a11y-hc #ui-right,
+html.a11y-hc #cycle-wheel-fixed,
+html.a11y-hc .perm-grid,
+html.a11y-hc .cycle-list,
+html.a11y-hc .cycle-wheel {
+  background: var(--panel-bg, rgba(15, 23, 42, 0.82)) !important;
+  border-color: var(--panel-border, #334155) !important;
+  box-shadow: var(--panel-shadow, 0 8px 24px rgba(0, 0, 0, 0.4)) !important;
+}
+
+*:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+#a11y-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 42px;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(6px);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 30;
+  pointer-events: none;
+  white-space: nowrap;
+}
