@@ -12,7 +12,6 @@ import { A11yManager } from "./a11y/a11y";
 import { createTesseract } from "./render-tesseract/tesseract";
 import { mountR4Controls } from "./ui/r4Controls";
 import { beginFrame, endFrame } from "./diag/frameArena";
-import { mountFpsHud } from "./diag/fpsHud";
 import { mountGuidedTourLauncher } from "./docs/guide";
 import { mountExportsPanel } from "./docs/exportsPanel";
 import { configureRenderer } from "./render/rendererConfig";
@@ -23,6 +22,11 @@ import "./docs/tour.css";
 import "./docs/exportsPanel.css";
 
 const container = document.getElementById("app")!;
+const hudQuery = new URLSearchParams(window.location.search).get("hud");
+const prefersCompactHUD = typeof window !== "undefined" && window.matchMedia
+  ? window.matchMedia("(max-width: 768px)").matches
+  : false;
+const hideHUD = hudQuery === "off" || (!hudQuery && prefersCompactHUD);
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
@@ -76,166 +80,255 @@ scene.add(stickers.object3d);
 const tesseract = createTesseract({ i: 0, j: 1, k: 2, l: 3 }, renderer);
 scene.add(tesseract.object3d);
 
-let uiRight = document.getElementById("ui-right") as HTMLDivElement | null;
-if (!uiRight) {
-  uiRight = document.createElement("div");
-  uiRight.id = "ui-right";
-  Object.assign(uiRight.style, {
-    position: "absolute",
-    top: "12px",
-    right: "12px",
-    width: "360px",
-    maxHeight: "80vh",
-    overflow: "auto",
-    background: "rgba(15,23,42,0.72)",
-    backdropFilter: "blur(6px)",
-    border: "1px solid #334155",
-    borderRadius: "8px",
-    padding: "10px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-    zIndex: "20",
-  } as CSSStyleDeclaration);
-  document.body.appendChild(uiRight);
-}
-const uiRoot = uiRight!;
-
-const listDiv = document.createElement("div");
-uiRoot.appendChild(listDiv);
-
-const onHover = (indices: number[]) => stickers.setHoverHighlights(indices);
-const list = mountCycleList(listDiv, () => stickers.getPerm48(), { onHover, label: "face" });
-
-stickers.onStateChanged = () => {
-  list.refresh();
+const addStateRefresh = (fn: () => void) => {
+  const prev = stickers.onStateChanged;
+  stickers.onStateChanged = () => {
+    prev?.();
+    fn();
+  };
 };
 
-// -- Mount Cycle Wheel (bottom-left floating panel) --
-let wheelPanel = document.getElementById("cycle-wheel-fixed") as HTMLDivElement | null;
-if (!wheelPanel) {
-  wheelPanel = document.createElement("div");
-  wheelPanel.id = "cycle-wheel-fixed";
-  wheelPanel.setAttribute("data-tour", "cycles");
-  Object.assign(wheelPanel.style, {
-    background: "rgba(15,23,42,0.82)",
-    border: "1px solid #334155",
-    borderRadius: "8px",
-    padding: "10px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-    backdropFilter: "blur(6px)",
-  } as CSSStyleDeclaration);
-  document.body.appendChild(wheelPanel);
-} else {
-  wheelPanel.innerHTML = "";
-}
-const wheelHost = document.createElement("div");
-wheelPanel.appendChild(wheelHost);
+let qualityBadge: HTMLDivElement | null = null;
+let a11yBadge: HTMLDivElement | null = null;
+let eigenCanvas: HTMLCanvasElement | null = null;
+let gridCanvas: HTMLCanvasElement | null = null;
 
-const wheel = mountCycleWheel(wheelHost, () => stickers.getPerm48(), {
-  onHover: (indices) => {
-    if (indices && indices.length) stickers.setHoverHighlights(indices);
-    else stickers.setHoverHighlights([]);
-  },
-});
-
-{
-  const prev = stickers.onStateChanged;
-  stickers.onStateChanged = () => {
-    prev?.();
-    wheel.refresh();
-  };
-}
-
-const eigenDiv = document.createElement("div");
-eigenDiv.setAttribute("data-tour", "eigen");
-uiRight.appendChild(eigenDiv);
-
-const eigen = mountEigenRing(eigenDiv, () => stickers.getPerm48(), {
-  onHover: (indices) => stickers.setHoverHighlights(indices),
-  size: 180,
-});
-
-{
-  const prev = stickers.onStateChanged;
-  stickers.onStateChanged = () => {
-    prev?.();
-    eigen.refresh();
-  };
-}
-
-const r4Div = document.createElement("div");
-r4Div.style.marginTop = "12px";
-r4Div.setAttribute("data-tour", "r4");
-uiRoot.appendChild(r4Div);
-
-mountR4Controls(r4Div, {
-  setPlanes: (p) => tesseract.setPlanes(p),
-  setAngles: (theta, phi) => tesseract.setAngles(theta, phi),
-});
-
-if ("setSlice" in tesseract) {
-  const slicePanel = document.createElement("div");
-  slicePanel.style.marginTop = "8px";
-  slicePanel.innerHTML = `
-    <div style="margin-top:6px;font-weight:600">Slice (w = w₀)</div>
-    <label style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-      <input id="slice-enable" type="checkbox"> Enable
-    </label>
-    <label style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-      w₀ <input id="slice-w0" type="range" min="-1.2" max="1.2" step="0.01" value="0">
-      <span id="slice-w0-v" style="width:44px;text-align:right;">0.00</span>
-    </label>
-    <label style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-      thickness <input id="slice-half" type="range" min="0.02" max="0.60" step="0.01" value="0.18">
-      <span id="slice-half-v" style="width:44px;text-align:right;">0.18</span>
-    </label>
-  `;
-  uiRight.appendChild(slicePanel);
-
-  const elOn = slicePanel.querySelector("#slice-enable") as HTMLInputElement;
-  const elW0 = slicePanel.querySelector("#slice-w0") as HTMLInputElement;
-  const elHalf = slicePanel.querySelector("#slice-half") as HTMLInputElement;
-  const elW0v = slicePanel.querySelector("#slice-w0-v") as HTMLSpanElement;
-  const elHv = slicePanel.querySelector("#slice-half-v") as HTMLSpanElement;
-  const sliceFn = (tesseract as any).setSlice as (w0: number, half: number, on: boolean) => void;
-
-  function pushSlice() {
-    elW0v.textContent = (+elW0.value).toFixed(2);
-    elHv.textContent = (+elHalf.value).toFixed(2);
-    sliceFn(+elW0.value, +elHalf.value, elOn.checked);
+if (!hideHUD) {
+  let hudRight = document.getElementById("hud-right-column") as HTMLDivElement | null;
+  if (!hudRight) {
+    hudRight = document.createElement("div");
+    hudRight.id = "hud-right-column";
+    Object.assign(hudRight.style, {
+      position: "absolute",
+      top: "12px",
+      right: "12px",
+      display: "flex",
+      flexDirection: "column",
+      gap: "12px",
+      alignItems: "flex-end",
+      zIndex: "20",
+    } as CSSStyleDeclaration);
+    document.body.appendChild(hudRight);
   }
-  elOn.oninput = elW0.oninput = elHalf.oninput = pushSlice;
-  pushSlice();
-}
 
-let qualityBadge = document.getElementById("quality-badge") as HTMLDivElement | null;
-if (!qualityBadge) {
-  qualityBadge = document.createElement("div");
-  qualityBadge.id = "quality-badge";
-  Object.assign(qualityBadge.style, {
+  const vizDock = document.createElement("div");
+  Object.assign(vizDock.style, {
     position: "absolute",
     left: "12px",
-    bottom: "12px",
-    padding: "6px 8px",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-    fontSize: "12px",
-    color: "#e2e8f0",
-    background: "rgba(15,23,42,0.72)",
+    bottom: "calc(24px + env(safe-area-inset-bottom))",
+    zIndex: "25",
+  } as CSSStyleDeclaration);
+  document.body.appendChild(vizDock);
+
+  let uiRight = document.getElementById("ui-right") as HTMLDivElement | null;
+  if (!uiRight) {
+    uiRight = document.createElement("div");
+    uiRight.id = "ui-right";
+    Object.assign(uiRight.style, {
+      width: "360px",
+      maxHeight: "80vh",
+      overflow: "auto",
+      background: "rgba(15,23,42,0.72)",
+      backdropFilter: "blur(6px)",
+      border: "1px solid #334155",
+      borderRadius: "8px",
+      padding: "10px",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+    } as CSSStyleDeclaration);
+    hudRight.appendChild(uiRight);
+  }
+  const uiRoot = uiRight!;
+
+  const cycleListDock = document.createElement("div");
+  Object.assign(cycleListDock.style, {
+    position: "absolute",
+    top: "12px",
+    left: "12px",
+    zIndex: "25",
+  } as CSSStyleDeclaration);
+  document.body.appendChild(cycleListDock);
+
+  const gridPanel = document.createElement("div");
+  gridPanel.style.background = "rgba(15,23,42,0.72)";
+  gridPanel.style.border = "1px solid #334155";
+  gridPanel.style.borderRadius = "8px";
+  gridPanel.style.padding = "10px";
+  gridPanel.style.boxShadow = "0 8px 24px rgba(0,0,0,0.35)";
+  gridPanel.style.backdropFilter = "blur(6px)";
+  cycleListDock.appendChild(gridPanel);
+
+  const listDiv = document.createElement("div");
+  gridPanel.appendChild(listDiv);
+  const list = mountCycleList(listDiv, () => stickers.getPerm48(), {
+    onHover: (indices) => stickers.setHoverHighlights(indices),
+    label: "face",
+  });
+  addStateRefresh(() => list.refresh());
+
+  const vizPanel = document.createElement("div");
+  Object.assign(vizPanel.style, {
+    display: "flex",
+    alignItems: "stretch",
+    width: "600px",
+    minHeight: "260px",
+    padding: "0",
+    borderRadius: "0",
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  } as CSSStyleDeclaration);
+  vizDock.appendChild(vizPanel);
+
+  const vizCanvasSize = 230;
+
+  const makeVizColumn = (title: string, divider = false) => {
+    const col = document.createElement("div");
+    Object.assign(col.style, {
+      flex: "1",
+      display: "flex",
+      flexDirection: "column",
+      gap: "12px",
+      paddingLeft: divider ? "24px" : "0px",
+      borderLeft: divider ? "1px solid rgba(148,163,184,0.25)" : "none",
+      marginLeft: divider ? "24px" : "0px",
+    } as CSSStyleDeclaration);
+    const heading = document.createElement("div");
+    heading.textContent = title;
+    Object.assign(heading.style, {
+      fontSize: "22px",
+      fontWeight: "600",
+      color: "#dce6ff",
+      letterSpacing: "0.01em",
+    } as CSSStyleDeclaration);
+    col.appendChild(heading);
+    const inner = document.createElement("div");
+    Object.assign(inner.style, {
+      flex: "1",
+      borderRadius: "16px",
+      background: "transparent",
+      border: "none",
+      padding: "4px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: `${vizCanvasSize + 20}px`,
+    } as CSSStyleDeclaration);
+    col.appendChild(inner);
+    vizPanel.appendChild(col);
+    return { col, inner };
+  };
+
+  const wheelCol = makeVizColumn("Cycle wheel");
+  wheelCol.col.setAttribute("data-tour", "cycles");
+  const wheelHost = document.createElement("div");
+  wheelHost.style.width = `${vizCanvasSize}px`;
+  wheelHost.style.height = `${vizCanvasSize}px`;
+  wheelCol.inner.appendChild(wheelHost);
+  const wheel = mountCycleWheel(wheelHost, () => stickers.getPerm48(), {
+    onHover: (indices) => {
+      if (indices && indices.length) stickers.setHoverHighlights(indices);
+      else stickers.setHoverHighlights([]);
+    },
+    showChrome: false,
+  });
+  addStateRefresh(() => wheel.refresh());
+
+  const eigenCol = makeVizColumn("Eigen-ring", true);
+  eigenCol.inner.style.alignItems = "flex-end";
+  eigenCol.col.setAttribute("data-tour", "eigen");
+  const eigenDiv = document.createElement("div");
+  eigenDiv.style.width = `${vizCanvasSize}px`;
+  eigenDiv.style.height = `${vizCanvasSize}px`;
+  eigenCol.inner.appendChild(eigenDiv);
+  const eigen = mountEigenRing(eigenDiv, () => stickers.getPerm48(), {
+    onHover: (indices) => stickers.setHoverHighlights(indices),
+    size: 180,
+    showChrome: false,
+  });
+  eigenCanvas = eigenDiv.querySelector<HTMLCanvasElement>("canvas");
+  addStateRefresh(() => eigen.refresh());
+
+  const r4Div = document.createElement("div");
+  r4Div.style.marginTop = "12px";
+  r4Div.setAttribute("data-tour", "r4");
+  uiRoot.appendChild(r4Div);
+  mountR4Controls(r4Div, {
+    setPlanes: (p) => tesseract.setPlanes(p),
+    setAngles: (theta, phi) => tesseract.setAngles(theta, phi),
+  });
+
+  if ("setSlice" in tesseract) {
+    const slicePanel = document.createElement("div");
+    slicePanel.style.marginTop = "8px";
+    slicePanel.innerHTML = `
+      <div style="margin-top:6px;font-weight:600">Slice (w = w₀)</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+        <input id="slice-enable" type="checkbox"> Enable
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+        w₀ <input id="slice-w0" type="range" min="-1.2" max="1.2" step="0.01" value="0">
+        <span id="slice-w0-v" style="width:44px;text-align:right;">0.00</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+        thickness <input id="slice-half" type="range" min="0.02" max="0.60" step="0.01" value="0.18">
+        <span id="slice-half-v" style="width:44px;text-align:right;">0.18</span>
+      </label>
+    `;
+    uiRight.appendChild(slicePanel);
+
+    const elOn = slicePanel.querySelector("#slice-enable") as HTMLInputElement;
+    const elW0 = slicePanel.querySelector("#slice-w0") as HTMLInputElement;
+    const elHalf = slicePanel.querySelector("#slice-half") as HTMLInputElement;
+    const elW0v = slicePanel.querySelector("#slice-w0-v") as HTMLSpanElement;
+    const elHv = slicePanel.querySelector("#slice-half-v") as HTMLSpanElement;
+    const sliceFn = (tesseract as any).setSlice as (w0: number, half: number, on: boolean) => void;
+
+    const pushSlice = () => {
+      elW0v.textContent = (+elW0.value).toFixed(2);
+      elHv.textContent = (+elHalf.value).toFixed(2);
+      sliceFn(+elW0.value, +elHalf.value, elOn.checked);
+    };
+    elOn.oninput = elW0.oninput = elHalf.oninput = pushSlice;
+    pushSlice();
+  }
+
+  const permDock = document.createElement("div");
+  Object.assign(permDock.style, {
+    position: "absolute",
+    right: "12px",
+    bottom: "calc(56px + env(safe-area-inset-bottom))",
+    width: "360px",
+    background: "rgba(15, 23, 42, 0.84)",
     backdropFilter: "blur(6px)",
     border: "1px solid #334155",
-    borderRadius: "6px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-    zIndex: "30",
-    pointerEvents: "none",
-    whiteSpace: "nowrap",
+    borderRadius: "10px",
+    padding: "10px",
+    boxShadow: "0 12px 30px rgba(0, 0, 0, 0.4)",
+    zIndex: "40",
   } as CSSStyleDeclaration);
-  document.body.appendChild(qualityBadge);
-}
+  document.body.appendChild(permDock);
+  const gridDiv = document.createElement("div");
+  permDock.appendChild(gridDiv);
+  const grid = mountPermGrid(gridDiv, () => stickers.getPerm48(), {
+    onHover: (i) => {
+      if (i >= 0) stickers.setHoverHighlights([i]);
+      else stickers.setHoverHighlights([]);
+    },
+  });
+  gridCanvas = gridDiv.querySelector<HTMLCanvasElement>("canvas");
+  addStateRefresh(() => grid.refresh());
 
-let a11yBadge = document.getElementById("a11y-badge") as HTMLDivElement | null;
-if (!a11yBadge) {
-  a11yBadge = document.createElement("div");
-  a11yBadge.id = "a11y-badge";
-  document.body.appendChild(a11yBadge);
+  qualityBadge = null;
+  a11yBadge = null;
+
+  const exportsPanel = mountExportsPanel({
+    threeCanvas: renderer.domElement as HTMLCanvasElement,
+    gridCanvas,
+    eigenCanvas,
+  });
+  document.body.appendChild(exportsPanel.el);
+
+  mountGuidedTourLauncher();
 }
 
 declare global {
@@ -286,39 +379,6 @@ const a11y = new A11yManager({
   reducedTurnMs: 350,
 });
 
-// -- NEW: left-top dock just for the permutation grid --
-const uiLeft = document.createElement("div");
-uiLeft.style.position = "absolute";
-uiLeft.style.top = "12px";
-uiLeft.style.left = "12px";
-uiLeft.style.width = "340px";
-uiLeft.style.maxHeight = "80vh";
-uiLeft.style.overflow = "auto";
-uiLeft.style.background = "rgba(15, 23, 42, 0.72)";
-uiLeft.style.backdropFilter = "blur(6px)";
-uiLeft.style.border = "1px solid #334155";
-uiLeft.style.borderRadius = "8px";
-uiLeft.style.padding = "10px";
-uiLeft.style.boxShadow = "0 8px 24px rgba(0,0,0,0.35)";
-uiLeft.style.zIndex = "20";
-document.body.appendChild(uiLeft);
-
-const gridDiv = document.createElement("div");
-uiLeft.appendChild(gridDiv);
-
-const onGridHover = (i: number) => {
-  if (i >= 0) stickers.setHoverHighlights([i]);
-  else stickers.setHoverHighlights([]);
-};
-
-const grid = mountPermGrid(gridDiv, () => stickers.getPerm48(), { onHover: onGridHover });
-
-const prevOnStateChanged = stickers.onStateChanged;
-stickers.onStateChanged = () => {
-  prevOnStateChanged?.();
-  grid.refresh();
-};
-
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -328,9 +388,12 @@ controls.target.set(0, 0, 0);
 controls.update();
 
 mountMoveUI({
-  onParse(tokens) {
+  onApply(tokens) {
     stickers.enqueue(tokens as any, currentTurnMs);
-  }
+  },
+  onReset() {
+    stickers.reset();
+  },
 });
 
 function onResize() {
@@ -360,12 +423,3 @@ renderer.setAnimationLoop(() => {
   const tokens = parseMoves(sequence);
   stickers.enqueue(tokens as any, currentTurnMs);
 };
-mountFpsHud();
-mountGuidedTourLauncher();
-
-const exportsPanel = mountExportsPanel({
-  threeCanvas: renderer.domElement as HTMLCanvasElement,
-  gridCanvas: document.querySelector<HTMLCanvasElement>("#perm-grid canvas"),
-  eigenCanvas: eigenDiv.querySelector<HTMLCanvasElement>("canvas"),
-});
-document.body.appendChild(exportsPanel.el);

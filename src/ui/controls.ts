@@ -1,11 +1,15 @@
-import { parseMoves, formatMoves, type Face, type MoveToken } from "./moveParser";
+﻿import { parseMoves, formatMoves, type MoveToken } from "./moveParser";
 
 type Handlers = {
-  onParse?: (tokens: MoveToken[], text: string) => void;
+  onApply?: (tokens: MoveToken[]) => void;
+  onReset?: () => void;
 };
 
-const FACES: Face[] = ["U", "D", "L", "R", "F", "B"];
-const PRIME_CHAR = "′";
+const MOVE_ROWS = [
+  ["U", "D", "L", "R", "F", "B"],
+  ["U'", "D'", "L'", "R'", "F'", "B'"],
+  ["U2", "D2", "L2", "R2", "F2", "B2"],
+];
 
 export function mountMoveUI(handlers: Handlers = {}): {
   getText: () => string;
@@ -13,169 +17,132 @@ export function mountMoveUI(handlers: Handlers = {}): {
   destroy: () => void;
 } {
   const host = document.getElementById("app") || document.body;
-
   const root = document.createElement("div");
   root.setAttribute("data-tour", "moves");
-  root.className = "panel moves";
-  Object.assign(root.style, {
-    background: "rgba(10,12,16,0.88)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: "8px",
-    padding: "10px",
-    color: "#e6edf3",
-    font: "12px/1.3 ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
-    backdropFilter: "blur(6px)",
-    boxShadow: "0 4px 30px rgba(0,0,0,0.45)"
-  } as CSSStyleDeclaration);
-
-  root.classList.add("moves-dock");
-
+  root.className = "moves-pad";
   root.innerHTML = `
-    <div class="row title" style="font-weight:600;opacity:0.9;margin-bottom:6px;">Moves</div>
-    <div class="row faces" style="display:flex;gap:6px;margin-bottom:6px;">
-      ${FACES.map((f) => `<button class="btn face" data-face="${f}">${f}</button>`).join("")}
+    <div class="moves-card">
+      <div class="moves-head">
+        <input id="moveInput" class="moves-input" data-role="moves-input"
+          placeholder="D2 L2 R2 F2" spellcheck="false" />
+        <div class="moves-actions">
+          <button type="button" data-btn="clear">Clear</button>
+          <button type="button" data-btn="copy">Copy</button>
+        </div>
+      </div>
+      <div id="parseStatus" class="moves-status"></div>
+      <div class="moves-grid">
+        ${MOVE_ROWS.map(
+          (row) => `
+          <div class="moves-row">
+            ${row.map((m) => `<button type="button" data-move="${m}">${m}</button>`).join("")}
+          </div>`
+        ).join("")}
+      </div>
     </div>
-    <div class="row suffix" style="display:flex;gap:6px;margin-bottom:6px;">
-      <button class="btn suffix" data-sfx="prime">${PRIME_CHAR}</button>
-      <button class="btn suffix" data-sfx="2">2</button>
-      <button class="btn util" data-act="back" title="Backspace" style="margin-left:auto;">⌫</button>
-      <button class="btn util" data-act="clear" title="Clear">Clear</button>
-    </div>
-    <div class="row input" style="display:flex;gap:6px;margin-bottom:6px;">
-      <input id="moveInput" class="input" data-role="moves-input" placeholder="Type: F R U L D′ F B′ R U" spellcheck="false"
-        style="flex:1;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(20,22,27,0.8);color:#e6edf3;padding:6px 8px;outline:none;" />
-      <button id="parseBtn" class="btn parse" data-role="parse-btn" style="font-weight:700;">Parse</button>
-    </div>
-    <div class="row status" id="parseStatus" style="min-height:16px;opacity:0.9;"></div>
   `;
-
-  root.querySelectorAll<HTMLButtonElement>(".btn").forEach((btn) => {
-    Object.assign(btn.style, {
-      border: "1px solid rgba(255,255,255,0.1)",
-      background: "rgba(255,255,255,0.06)",
-      color: "#e6edf3",
-      borderRadius: "6px",
-      padding: "6px 8px",
-      cursor: "pointer",
-      userSelect: "none",
-      transition: "background 0.1s ease, transform 0.1s ease"
-    });
-    btn.addEventListener("mouseenter", () => {
-      btn.style.background = "rgba(255,255,255,0.12)";
-    });
-    btn.addEventListener("mouseleave", () => {
-      btn.style.background = "rgba(255,255,255,0.06)";
-    });
-    btn.addEventListener("mousedown", () => {
-      btn.style.transform = "translateY(1px)";
-    });
-    btn.addEventListener("mouseup", () => {
-      btn.style.transform = "";
-    });
-  });
-
   host.appendChild(root);
 
   const input = root.querySelector<HTMLInputElement>("#moveInput")!;
   const status = root.querySelector<HTMLDivElement>("#parseStatus")!;
-  const parseBtn = root.querySelector<HTMLButtonElement>("#parseBtn")!;
+  const clearBtn = root.querySelector<HTMLButtonElement>('[data-btn="clear"]')!;
+  const copyBtn = root.querySelector<HTMLButtonElement>('[data-btn="copy"]')!;
 
-  let committed = "";
-  let pending = "";
+  let text = "";
+  let appliedTokens: MoveToken[] = [];
+  let appliedSig = "";
 
-  function updateInput() {
-    input.value = committed + pending;
+  function syncInput() {
+    input.value = text;
   }
 
-  function finalizePending() {
-    if (pending.length) {
-      if (!/\s$/.test(committed)) committed += " ";
-      committed += pending + " ";
-      pending = "";
-    }
-    updateInput();
-  }
-
-  function appendFace(face: Face) {
-    finalizePending();
-    pending = face;
-    updateInput();
-  }
-
-  function appendPrime() {
-    if (!pending) return;
-    if (!pending.includes("'") && !pending.includes(PRIME_CHAR)) {
-      pending += PRIME_CHAR;
-      updateInput();
-    }
-  }
-
-  function append2() {
-    if (!pending) return;
-    if (!pending.includes("2")) {
-      pending += "2";
-      updateInput();
-    }
-  }
-
-  function backspace() {
-    if (pending.length) {
-      pending = pending.slice(0, -1);
-      updateInput();
+  function applyFromText(nextText: string) {
+    text = nextText;
+    syncInput();
+    const trimmed = text.trim();
+    if (!trimmed) {
+      if (appliedTokens.length) {
+        handlers.onReset?.();
+        appliedTokens = [];
+        appliedSig = "";
+        status.textContent = "";
+      }
       return;
     }
-    committed = committed.replace(/\s+$/, "");
-    committed = committed.slice(0, -1);
-    committed = committed.replace(/\s+$/, "") + (committed ? " " : "");
-    updateInput();
+    let tokens: MoveToken[];
+    try {
+      tokens = parseMoves(trimmed);
+    } catch (err: any) {
+      status.textContent = err?.message || "Parse error.";
+      return;
+    }
+    const sig = formatMoves(tokens);
+    if (sig === appliedSig) return;
+
+    let common = 0;
+    while (common < tokens.length && common < appliedTokens.length) {
+      const a = tokens[common];
+      const b = appliedTokens[common];
+      if (a.face === b.face && a.power === b.power && a.prime === b.prime) common++;
+      else break;
+    }
+
+    if (common < appliedTokens.length) {
+      handlers.onReset?.();
+      if (tokens.length) handlers.onApply?.(tokens);
+    } else {
+      const delta = tokens.slice(common);
+      if (delta.length) handlers.onApply?.(delta);
+    }
+
+    appliedTokens = tokens;
+    appliedSig = sig;
+    status.textContent = `Moves: ${tokens.length}`;
+  }
+
+  function appendMove(move: string) {
+    const next = text ? `${text} ${move}` : move;
+    applyFromText(next);
+  }
+
+  function modifyLast(mod: "'" | "2") {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    let tokens: MoveToken[];
+    try {
+      tokens = parseMoves(trimmed);
+    } catch {
+      return;
+    }
+    if (!tokens.length) return;
+    const last = tokens[tokens.length - 1];
+    if (mod === "'") last.prime = true;
+    else last.power = 2;
+    applyFromText(formatMoves(tokens));
   }
 
   function clearAll() {
-    committed = "";
-    pending = "";
-    updateInput();
+    text = "";
+    appliedTokens = [];
+    appliedSig = "";
+    syncInput();
     status.textContent = "";
+    handlers.onReset?.();
   }
 
-  function parseNow() {
-    finalizePending();
-    const text = (committed + pending).trim();
-    if (!text) {
-      status.textContent = "No moves.";
-      return;
-    }
-    try {
-      const tokens = parseMoves(text);
-      status.textContent = `Parsed: ${formatMoves(tokens)}`;
-      handlers.onParse?.(tokens, text);
-    } catch (err: any) {
-      status.textContent = err?.message || "Parse error.";
-    }
+  function copyAll() {
+    const value = text.trim();
+    if (value && navigator.clipboard) navigator.clipboard.writeText(value).catch(() => {});
   }
 
-  root.querySelectorAll<HTMLButtonElement>(".btn.face").forEach((btn) => {
-    btn.addEventListener("click", () => appendFace(btn.dataset.face as Face));
+  root.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((btn) => {
+    btn.addEventListener("click", () => appendMove(btn.dataset.move!));
   });
-  root.querySelectorAll<HTMLButtonElement>(".btn.suffix").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const sfx = btn.dataset.sfx;
-      if (sfx === "prime") appendPrime();
-      else if (sfx === "2") append2();
-    });
-  });
-  root.querySelectorAll<HTMLButtonElement>(".btn.util").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const act = btn.dataset.act;
-      if (act === "back") backspace();
-      else if (act === "clear") clearAll();
-    });
-  });
-  parseBtn.addEventListener("click", parseNow);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      parseNow();
-    }
+  clearBtn.addEventListener("click", clearAll);
+  copyBtn.addEventListener("click", copyAll);
+
+  input.addEventListener("input", () => {
+    applyFromText(input.value);
   });
 
   function onKey(e: KeyboardEvent) {
@@ -187,42 +154,34 @@ export function mountMoveUI(handlers: Handlers = {}): {
 
     const k = e.key;
     if (/^[udlrfb]$/i.test(k)) {
-      appendFace(k.toUpperCase() as Face);
+      appendMove(k.toUpperCase());
       return;
     }
     if (k === "'" || k === "′") {
-      appendPrime();
+      modifyLast("'");
       return;
     }
     if (k === "2") {
-      append2();
+      modifyLast("2");
       return;
     }
     if (k === "Backspace") {
       e.preventDefault();
-      backspace();
-      return;
-    }
-    if (k === " " || k === "Enter") {
-      e.preventDefault();
-      parseNow();
-      return;
+      applyFromText(text.slice(0, -1));
     }
   }
 
   window.addEventListener("keydown", onKey);
-  updateInput();
+  syncInput();
 
   return {
-    getText: () => (committed + pending).trim(),
+    getText: () => text.trim(),
     setText: (s: string) => {
-      committed = s.trim() ? s.trim() + " " : "";
-      pending = "";
-      updateInput();
+      applyFromText(s.trim());
     },
     destroy: () => {
       window.removeEventListener("keydown", onKey);
       root.remove();
-    }
+    },
   };
 }

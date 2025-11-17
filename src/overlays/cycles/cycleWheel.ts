@@ -6,6 +6,7 @@ export interface CycleWheelOptions {
   radius?: number; // ring radius (center to midline), default size*0.36
   ringWidth?: number; // stroke width in px, default 14
   showLabels?: boolean; // draw 'k' at mid-arc, default true
+  showChrome?: boolean; // show title + legend, default true
   onHover?: (indices: number[] | null) => void; // null = clear
 }
 
@@ -60,21 +61,29 @@ export function mountCycleWheel(
   const radius = opts?.radius ?? size * 0.36;
   const ringWidth = opts?.ringWidth ?? 14;
   const showLabels = opts?.showLabels ?? true;
+  const showChrome = opts?.showChrome ?? true;
 
   const root = document.createElement("div");
   root.id = "cycle-wheel";
-  root.innerHTML = `<div class="title">Cycle wheel</div>`;
+  container.appendChild(root);
+  if (showChrome) {
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = "Cycle wheel";
+    root.appendChild(title);
+  }
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size * devicePixelRatio;
   canvas.style.width = canvas.style.height = `${size}px`;
   const ctx = canvas.getContext("2d") as Ctx;
   ctx.scale(devicePixelRatio, devicePixelRatio);
   root.appendChild(canvas);
-  const legend = document.createElement("div");
-  legend.className = "legend";
-  legend.textContent = "Arc size ~ cycle length k. Hover to highlight members.";
-  root.appendChild(legend);
-  container.appendChild(root);
+  if (showChrome) {
+    const legend = document.createElement("div");
+    legend.className = "legend";
+    legend.textContent = "Arc size ~ cycle length k. Hover to highlight members.";
+    root.appendChild(legend);
+  }
 
   let arcs: Arc[] = [];
   let hoverArcIdx = -1;

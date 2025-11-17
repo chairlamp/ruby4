@@ -202,8 +202,16 @@ export class StickerSystem {
   get object3d(): THREE.Group { return this.root; }
 
   reset(): void {
+    this.queue.length = 0;
+    this.active = null;
+    this.destroyOverlay();
+    this.hidden.length = 0;
     this.state = identity48();
     this.refreshColors();
+    this.highlight.count = 0;
+    this.highlight.instanceMatrix.needsUpdate = true;
+    this.base.instanceMatrix.needsUpdate = true;
+    this.onStateChanged?.();
   }
 
   enqueue(tokens: MoveToken[], quarterMs = 200): void {

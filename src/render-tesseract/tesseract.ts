@@ -26,6 +26,7 @@ export function createTesseract(initial: DoublePlane, renderer: THREE.WebGLRende
       uP1: { value: new THREE.Vector4(0, 1, 0, 0) },
       uP2: { value: new THREE.Vector4(0, 0, 1, 0) },
       uD: { value: 3.0 },
+      uScale: { value: 3.4 },
       uW0: { value: 0.0 },
       uHalf: { value: 0.18 },
       uSliceOn: { value: 0.0 },
@@ -39,6 +40,7 @@ export function createTesseract(initial: DoublePlane, renderer: THREE.WebGLRende
       uniform mat4 uR1, uR2;
       uniform vec4 uP0, uP1, uP2;
       uniform float uD;
+      uniform float uScale;
       uniform float uW0, uHalf, uSliceOn;
 
       varying float vAlpha;
@@ -57,7 +59,7 @@ export function createTesseract(initial: DoublePlane, renderer: THREE.WebGLRende
         float a = 1.0 - smoothstep(inner, uHalf, d);
         vAlpha = mix(1.0, a, clamp(uSliceOn, 0.0, 1.0));
 
-        vec3 p3 = project34(p4);
+        vec3 p3 = project34(p4) * uScale;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p3, 1.0);
       }
     `,
@@ -117,7 +119,12 @@ export function createTesseract(initial: DoublePlane, renderer: THREE.WebGLRende
     mat.uniforms.uSliceOn.value = on ? 1.0 : 0.0;
   }
 
-  setAngles(0, 0);
+  function setScale(s: number) {
+    mat.uniforms.uScale.value = s;
+  }
 
-  return { object3d: lines, setAngles, setPlanes, setProjection, setSlice };
+  setAngles(0, 0);
+  setScale(mat.uniforms.uScale.value as number);
+
+  return { object3d: lines, setAngles, setPlanes, setProjection, setSlice, setScale };
 }
